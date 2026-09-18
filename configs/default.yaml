@@ -32,11 +32,11 @@ runtime:
 generation:
   max_prompt_tokens: 1024
   max_new_tokens: 768
-  batch_size: 256
+  batch_size: 512
   temperature: 1.0
 scoring:
   mode: rationale_then_score
-  batch_size: 128
+  batch_size: 192
   max_input_tokens: 4096
   max_new_tokens: 160
   retry_max_new_tokens: 320
@@ -85,7 +85,7 @@ evaluation:
   numeric_protocol_frozen_before_run: true
 data_seed: 42
 teacher30b:
-  batch_size: 32
+  batch_size: 64
   evaluate_final: false
 completion_reward:
   format_penalty: 0.0

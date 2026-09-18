@@ -10,6 +10,12 @@ After the package rename and runtime optimizations, the full suite passed:
 deprecation warnings**. The `python -m workshop run --seeds 42 43 44 --dry-run`
 command confirms all five reward arms and the 400-attempt full schedule.
 
+The subsequent configuration-only batch increase passed **39 focused tests**
+covering configuration, the CLI, matched teachers, cache transactions and CUDA
+optimizer/resume behavior, plus the three-seed dry run. The only configuration
+changes are the generation, proxy/4B grading and 30B grading batch limits; the
+PPO, dataset, reward and evaluation settings were checked unchanged.
+
 - **139 tests passed.** This includes real tiny Qwen2/Qwen3/Qwen3-MoE model
   forwards and gradients, all-arm pilot-to-full execution, unchanged completed
   checkpoints on rerun, invalid-grade recovery, frozen ridge fitting, reporting,

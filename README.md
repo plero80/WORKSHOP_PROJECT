@@ -60,13 +60,17 @@ The default is one full seed, **42**, with **400 PPO attempts per arm**.
 Ridge runs automatically with the other four arms.
 
 The default runtime uses BF16, PyTorch SDPA attention, and fused AdamW updates on
-CUDA. Generation batches contain up to 256 answers; proxy/4B grading batches up
-to 128; 30B grading batches up to 32. PPO computes old/reference statistics for
+CUDA. Generation batches contain up to 512 answers; proxy/4B grading batches up
+to 192; 30B grading batches up to 64. PPO computes old/reference statistics for
 up to 16 answers together, while optimizer minibatches remain **8 answers** and
 rollouts remain **16 answers**. Gradient checkpointing is disabled to avoid
 recomputing activations. These settings prioritize throughput on a GPU with
 ample memory. On smaller GPUs, reduce `generation.batch_size`,
 `scoring.batch_size`, `teacher30b.batch_size`, and `runtime.ppo_microbatch_size`.
+Larger generation/grading limits primarily affect preparation and evaluation;
+PPO still samples only its declared 16 answers per attempt. Batch limits are
+starting settings, not a measured throughput optimum. Actual throughput depends
+on answer lengths and the installed GPU software stack.
 
 Completed grading batches are cached with one durable transaction per batch.
 If interrupted during an unfinished batch, only its uncached answers need
