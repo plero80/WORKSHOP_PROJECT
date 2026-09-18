@@ -152,13 +152,34 @@ def finite(values, name):
 
 
 def load_config(path):
-    path = Path(path)
-    if path.suffix.lower() in ('.yaml', '.yml'):
-        import yaml
-        c = yaml.safe_load(path.read_text(encoding='utf-8'))
-    else:
-        c = read_json(path)
-    return validate_config(c)
+    """Resolve optional relative configuration inheritance before validation."""
+    def merge(base, overrides):
+        result = dict(base)
+        for key, value in overrides.items():
+            result[key] = (merge(result[key], value)
+                           if isinstance(result.get(key), dict) and isinstance(value, dict)
+                           else value)
+        return result
+
+    def read(path, parents=()):
+        path = Path(path).resolve()
+        if path in parents:
+            raise ValueError(f'Configuration inheritance cycle: {path}')
+        if path.suffix.lower() in ('.yaml', '.yml'):
+            import yaml
+            config = yaml.safe_load(path.read_text(encoding='utf-8'))
+        else:
+            config = read_json(path)
+        if not isinstance(config, dict):
+            raise ValueError(f'Configuration must be a mapping: {path}')
+        if 'extends' in config:
+            parent = config.pop('extends')
+            if not isinstance(parent, str) or not parent.strip():
+                raise ValueError('Configuration extends must name a parent file.')
+            config = merge(read(path.parent / parent, (*parents, path)), config)
+        return config
+
+    return validate_config(read(path))
 
 
 def validate_config(c):

@@ -11,6 +11,7 @@ Dataset loading and the default split are configured in `configs/default.yaml`.
 workshop_knn_project/
     workshop/          # CLI, models, PPO, reward methods, evaluation and analysis
     configs/           # Experiment configuration
+    scripts/           # Launchers sharing one seed-run implementation
     tests/             # CPU unit and integration tests
     requirements.txt   # Pinned Python dependencies
     README.md
@@ -58,6 +59,37 @@ python -m workshop run
 On Windows, activate the environment with `.venv\Scripts\Activate.ps1`.
 The default is one full seed, **42**, with **400 PPO attempts per arm**.
 Ridge runs automatically with the other four arms.
+
+After installing the requirements above, **choose one launcher** for a full
+seed-42 run in the background:
+
+| GPU | Launch command | Generation batch | Proxy/4B batch | 30B batch |
+|---|---|---:|---:|---:|
+| B200 | `bash scripts/run_b200.sh` | 256 | 128 | 32 |
+| B300 | `bash scripts/run_b300.sh` | 512 | 192 | 64 |
+
+Both use the same five reward arms, 400 attempts per arm, dataset splits and
+PPO settings. The small configuration files inherit `configs/default.yaml` and
+override only three inference batch limits. The launchers share
+`scripts/run_seed.sh` and use the existing `.venv` when available. They do not
+install dependencies or change the training implementation.
+
+Outputs stay separate under `outputs/b200/` and `outputs/b300/`. Each contains
+`launcher.log`, `seed_42/experiment.log`, reports and `paper_results/` figures.
+The process continues after disconnecting while the pod remains running.
+Repeat the same launcher to resume an interrupted run; start it only once while
+a run is active. Append `--dry-run` to either launcher to print its plan without
+creating outputs or starting training.
+
+For custom seeds or foreground execution, the same configuration is available
+through the regular CLI, for example:
+
+```bash
+python -m workshop run --config configs/b200.yaml --seeds 42 --output outputs/b200
+```
+
+Configuration `extends` paths resolve relative to the file declaring them.
+The runner saves the fully resolved configuration with each experiment.
 
 The default runtime uses BF16, PyTorch SDPA attention, and fused AdamW updates on
 CUDA. Generation batches contain up to 512 answers; proxy/4B grading batches up

@@ -31,6 +31,35 @@ def test_copied_project_runs_without_original_repository(tmp_path):
         assert result.returncode != 0
 
 
+@pytest.mark.parametrize('profile,batches', [('b200', (256, 128, 32)), ('b300', (512, 192, 64))])
+def test_runtime_profiles_share_experiment_definition(tmp_path, profile, batches):
+    # An isolated copy also proves inheritance does not depend on the cwd.
+    shutil.copytree(ROOT/'configs', tmp_path/'configs')
+    base = load_config(tmp_path/'configs/default.yaml')
+    config = load_config(tmp_path/'configs'/f'{profile}.yaml')
+    assert 'extends' not in config
+    for section, expected in zip(('generation', 'scoring', 'teacher30b'), batches):
+        assert config[section]['batch_size'] == expected
+        config[section]['batch_size'] = base[section]['batch_size']
+    assert config == base
+    assert load_config(tmp_path/'configs/default.yaml') == base
+
+
+def test_configuration_inheritance_rejects_cycles_and_bad_parents(tmp_path):
+    left, right = tmp_path/'left.yaml', tmp_path/'right.yaml'
+    left.write_text('extends: right.yaml\n', encoding='utf-8')
+    right.write_text('extends: left.yaml\n', encoding='utf-8')
+    with pytest.raises(ValueError, match='inheritance cycle'):
+        load_config(left)
+    left.write_text('extends: 42\n', encoding='utf-8')
+    with pytest.raises(ValueError, match='parent file'):
+        load_config(left)
+    left.write_text('extends: right.yaml\n', encoding='utf-8')
+    right.write_text('- not a mapping\n', encoding='utf-8')
+    with pytest.raises(ValueError, match='must be a mapping'):
+        load_config(left)
+
+
 def test_seed_suite_pins_assets_and_can_append_seeds(tmp_path, monkeypatch):
     config = load_config(DEFAULT_CONFIG)
     original = copy.deepcopy(config)

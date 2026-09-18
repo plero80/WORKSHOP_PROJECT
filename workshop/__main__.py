@@ -39,7 +39,7 @@ def main(argv=None):
                 raise ValueError('Seeds must be distinct integers in [0, 2**32).')
             if args.updates is not None and args.updates < 1:
                 raise ValueError('--updates must be positive.')
-            for name in ('workshop', 'configs', 'tests'):
+            for name in ('workshop', 'configs', 'tests', 'scripts'):
                 protected = ROOT/name
                 if output.is_relative_to(protected) or protected.is_relative_to(output):
                     raise ValueError('Choose a separate output directory, outside code/configs/tests.')
@@ -52,6 +52,10 @@ def main(argv=None):
                 'ridge_target': 'actual normalized 4B gap, same memory as static kNN',
                 'ridge_selection': 'separate validation MSE, frozen before PPO',
                 'final_questions_per_policy': d['final'] if args.stage == 'full' else 0,
+                'runtime_batches': {'generation': config['generation']['batch_size'],
+                                    'grading': config['scoring']['batch_size'],
+                                    'teacher30b': config.get('teacher30b', {}).get('batch_size'),
+                                    'ppo_microbatch': config['runtime']['ppo_microbatch_size']},
                 'engine': 'one workshop/ppo.py for every arm'}, indent=2), flush=True)
             if args.dry_run:
                 return 0

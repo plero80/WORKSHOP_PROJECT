@@ -5,18 +5,20 @@ Python dependencies pinned in `requirements.txt`. Core tiny-model tests run on
 CPU, with additional CUDA checks when available. No pretrained models are
 downloaded by the tests.
 
-After the package rename and runtime optimizations, the full suite passed:
-**139 tests passed, 2 third-party SWIG
+After the runtime optimizations and shared launch profiles, the full suite passed:
+**142 tests passed, 2 third-party SWIG
 deprecation warnings**. The `python -m workshop run --seeds 42 43 44 --dry-run`
 command confirms all five reward arms and the 400-attempt full schedule.
 
-The subsequent configuration-only batch increase passed **39 focused tests**
-covering configuration, the CLI, matched teachers, cache transactions and CUDA
-optimizer/resume behavior, plus the three-seed dry run. The only configuration
-changes are the generation, proxy/4B grading and 30B grading batch limits; the
-PPO, dataset, reward and evaluation settings were checked unchanged.
+Both inherited runtime profiles were checked against the common experiment
+definition: only generation, proxy/4B grading and 30B grading batch limits differ.
+Relative parent paths and inheritance-cycle rejection are tested. Both shell
+launchers passed syntax checks and real CLI dry runs without creating outputs.
+A separate isolated check used a stub process to verify detached seed-42
+launches, separate output/log paths, rejection of unknown arguments and paths
+containing spaces; no training process was started by that shell check.
 
-- **139 tests passed.** This includes real tiny Qwen2/Qwen3/Qwen3-MoE model
+- Integration tests include real tiny Qwen2/Qwen3/Qwen3-MoE model
   forwards and gradients, all-arm pilot-to-full execution, unchanged completed
   checkpoints on rerun, invalid-grade recovery, frozen ridge fitting, reporting,
   seed scheduling and copying the package/config to an isolated directory.

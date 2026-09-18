@@ -1,0 +1,8 @@
+# Runtime overrides only; experiment definitions live in default.yaml.
+extends: default.yaml
+generation:
+  batch_size: 512
+scoring:
+  batch_size: 192
+teacher30b:
+  batch_size: 64
