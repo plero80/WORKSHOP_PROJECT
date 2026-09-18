@@ -53,6 +53,7 @@ knn:
   refresh_prompts: 64
   refresh_responses: 2
 ppo:
+  backend: openrlhf
   pilot_updates: 100
   full_updates: 400
   prompts_per_update: 8

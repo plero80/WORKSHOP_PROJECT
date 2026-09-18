@@ -6,14 +6,20 @@ import torch
 from conftest import items
 from workshop import ppo
 from workshop.models import Policy
-from workshop.ppo import PPOTrainer, advantages_and_returns, load_checkpoint, save_checkpoint
+from workshop.ppo import PPOTrainer, load_checkpoint, save_checkpoint
 
 
-def test_masked_gae_matches_hand_computed_terminal_rewards():
+def test_masked_gae_matches_hand_computed_terminal_rewards(tiny_assets):
+    config, resolved = tiny_assets
+    config['ppo']['gae_lambda'] = .5
+    trainer = PPOTrainer(Policy(config, resolved), config)
     mask = torch.tensor([[True, True, False], [True, True, True]])
     values = torch.zeros(2, 3)
-    rewards = torch.tensor([[0., 1., 0.], [0., 0., -1.]])
-    advantages, returns = advantages_and_returns(values, rewards, mask, 1., .5)
+    experience = trainer.workers.library.Experience(index=[0, 1], values=values,
+        action_mask=mask, kl=torch.zeros_like(values), rewards=torch.tensor([1., -1.]),
+        info={'response_length': mask.sum(1).float()})
+    trainer.workers.maker.compute_advantages_and_returns([experience])
+    advantages, returns = experience.advantages * mask, experience.returns
     expected = torch.tensor([[.5, 1., 0.], [-.25, -.5, -1.]])
     torch.testing.assert_close(returns, expected)
     assert advantages[~mask].count_nonzero() == 0
@@ -31,7 +37,8 @@ def test_update_and_exact_checkpoint_resume(tiny_assets, tmp_path, monkeypatch, 
     frozen = {n: x.detach().clone() for n, x in policy.lm.named_parameters() if not x.requires_grad}
     trainer = PPOTrainer(policy, config)
     calls = {'reference': 0, 'gae': 0}
-    statistics, gae = policy.statistics, ppo.advantages_and_returns
+    statistics = policy.statistics
+    gae = trainer.workers.maker.compute_advantages_and_returns
 
     def counted_statistics(*args, **kwargs):
         calls['reference'] += bool(kwargs.get('reference'))
@@ -42,7 +49,7 @@ def test_update_and_exact_checkpoint_resume(tiny_assets, tmp_path, monkeypatch, 
         return gae(*args)
 
     monkeypatch.setattr(policy, 'statistics', counted_statistics)
-    monkeypatch.setattr(ppo, 'advantages_and_returns', counted_gae)
+    monkeypatch.setattr(trainer.workers.maker, 'compute_advantages_and_returns', counted_gae)
     rollout = trainer.prepare(items(), [1., -1.])
     torch.testing.assert_close(rollout['old_logprobs'], rollout['reference_logprobs'])
     result = trainer.optimize(rollout, 0)

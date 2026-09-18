@@ -3,16 +3,17 @@ import argparse
 import json
 from pathlib import Path
 
-from .common import ARMS, DEFAULT_CONFIG, OUTPUT_ROOT, ROOT, load_config, read_json, validate_config
+from .common import ARMS, DEFAULT_CONFIG, ENGINE_ID, OUTPUT_ROOT, ROOT, load_config, read_json, validate_config
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='python -m workshop',
         description='Workshop kNN: matched proxy, judge, kNN and ridge PPO on GSM8K.')
     actions = parser.add_subparsers(dest='action', required=True)
+    actions.add_parser('backend-check', help='Run a tiny real OpenRLHF update and checkpoint check; no model downloads.')
     run = actions.add_parser('run', help='Start or resume all declared reward arms.')
     run.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
-    run.add_argument('--output', type=Path, default=OUTPUT_ROOT/'main')
+    run.add_argument('--output', type=Path, default=OUTPUT_ROOT/'openrlhf')
     run.add_argument('--seeds', type=int, nargs='+', help='Default: the seed in the YAML. Example: 42 43 44')
     run.add_argument('--stage', choices=['prepare', 'pilot', 'full'], default='full')
     run.add_argument('--arms', nargs='+', choices=ARMS, help='Override the YAML arm list before starting a new run.')
@@ -20,14 +21,18 @@ def main(argv=None):
     run.add_argument('--dry-run', action='store_true', help='Print the plan; no files, downloads or training.')
     for name in ('report', 'status'):
         sub = actions.add_parser(name)
-        sub.add_argument('--output', type=Path, default=OUTPUT_ROOT/'main')
+        sub.add_argument('--output', type=Path, default=OUTPUT_ROOT/'openrlhf')
     analysis = actions.add_parser('analyze', help='Generate paper tables, figures and statistics from saved answers; CPU only.')
-    analysis.add_argument('--output', type=Path, default=OUTPUT_ROOT/'main', help='A seed-suite or single-seed output directory.')
+    analysis.add_argument('--output', type=Path, default=OUTPUT_ROOT/'openrlhf', help='A seed-suite or single-seed output directory.')
     analysis.add_argument('--destination', type=Path, help='Default: OUTPUT/paper_results')
     analysis.add_argument('--bootstrap-samples', type=int, help='Override the saved evaluation bootstrap count (0 disables intervals).')
     analysis.add_argument('--no-plots', action='store_true', help='Generate tables/statistics without PDF/PNG figures.')
     args = parser.parse_args(argv)
     try:
+        if args.action == 'backend-check':
+            from .backend_check import check
+            print(json.dumps(check(), indent=2), flush=True)
+            return 0
         output = args.output.resolve()
         if args.action == 'run':
             config = load_config(args.config)
@@ -56,7 +61,7 @@ def main(argv=None):
                                     'grading': config['scoring']['batch_size'],
                                     'teacher30b': config.get('teacher30b', {}).get('batch_size'),
                                     'ppo_microbatch': config['runtime']['ppo_microbatch_size']},
-                'engine': 'one workshop/ppo.py for every arm'}, indent=2), flush=True)
+                'engine': ENGINE_ID, 'ppo_backend': 'OpenRLHF 0.9.0; shared single-device strategy'}, indent=2), flush=True)
             if args.dry_run:
                 return 0
             from .suite import run_suite

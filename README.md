@@ -2,7 +2,11 @@
 
 Study proxy-reward overoptimization and compare kNN and ridge gap correction
 during PPO. The project uses one dataset, **GSM8K**, with one shared policy,
-training engine, and evaluation pipeline for every reward method.
+OpenRLHF PPO backend, and evaluation pipeline for every reward method.
+
+OpenRLHF supplies the actor/critic training steps, clipped losses and GAE.
+Our single-device strategy supplies the shared model, corrected rewards,
+batching and experiment lifecycle. See [the integration graph](docs/OPENRLHF.md).
 
 The Python package is `workshop`; all commands start with `python -m workshop`.
 Dataset loading and the default split are configured in `configs/default.yaml`.
@@ -32,13 +36,14 @@ method changes. The untrained base policy is evaluated as an additional baseline
 
 ## Run
 
-Use Python 3.11 or 3.12 and a CUDA-enabled PyTorch installation compatible with
-your GPU. The requirements retain the PyTorch supplied by your GPU environment;
-the runner checks matrix multiplication, attention forward/backward, and the
-configured optimizer on the GPU before downloading models. For a fresh GPU
-environment, use a recent PyTorch build with CUDA 12.8 or later; consult the
-[official installation instructions](https://pytorch.org/get-started/locally/)
-for a build compatible with your driver.
+Use Linux x86_64, Python 3.10–3.12 and an NVIDIA driver compatible with CUDA 12.9.
+The setup script creates an isolated environment with OpenRLHF 0.9.0, PyTorch
+2.8.0/CUDA 12.9 and compatible dependencies. It finishes by running a tiny real
+PPO update and exact checkpoint-resume check, without downloading any model.
+If the image lacks `nvcc`, setup installs NVIDIA's checksum-verified compiler
+redistribution inside the virtual environment; it does not change the GPU driver.
+Native Windows is not a supported OpenRLHF training environment; use a Linux
+GPU pod or WSL2 with CUDA support.
 The full default suite loads the 30B teacher for memory preparation. To omit that
 comparison, start a new output with `--arms proxy judge knn_static ridge`.
 
@@ -48,17 +53,19 @@ Clone the repository, then install and run on Linux:
 git clone https://github.com/plero80/WORKSHOP_PROJECT.git workshop_knn_project
 cd workshop_knn_project
 
-python -m venv --system-site-packages .venv
+bash scripts/setup.sh
 source .venv/bin/activate
-python -m pip install -r requirements.txt
 
 python -m workshop run --dry-run
 python -m workshop run
 ```
 
-On Windows, activate the environment with `.venv\Scripts\Activate.ps1`.
 The default is one full seed, **42**, with **400 PPO attempts per arm**.
 Ridge runs automatically with the other four arms.
+
+**Start a new run after this migration.** Old custom-PPO checkpoints and seed
+suites cannot resume under OpenRLHF or be pooled into the same matched suite.
+Existing saved results remain available for separate analysis.
 
 After installing the requirements above, **choose one launcher** for a full
 seed-42 run in the background:
@@ -74,7 +81,7 @@ override only three inference batch limits. The launchers share
 `scripts/run_seed.sh` and use the existing `.venv` when available. They do not
 install dependencies or change the training implementation.
 
-Outputs stay separate under `outputs/b200/` and `outputs/b300/`. Each contains
+Outputs stay separate under `outputs/openrlhf_b200/` and `outputs/openrlhf_b300/`. Each contains
 `launcher.log`, `seed_42/experiment.log`, reports and `paper_results/` figures.
 The process continues after disconnecting while the pod remains running.
 Repeat the same launcher to resume an interrupted run; start it only once while
@@ -85,7 +92,7 @@ For custom seeds or foreground execution, the same configuration is available
 through the regular CLI, for example:
 
 ```bash
-python -m workshop run --config configs/b200.yaml --seeds 42 --output outputs/b200
+python -m workshop run --config configs/b200.yaml --seeds 42 --output outputs/openrlhf_b200
 ```
 
 Configuration `extends` paths resolve relative to the file declaring them.
@@ -130,7 +137,7 @@ it is not a GPU or dependency smoke test.
 The launcher writes each seed's live log into its output folder. In another terminal:
 
 ```bash
-tail -f outputs/main/seed_42/experiment.log
+tail -f outputs/openrlhf/seed_42/experiment.log
 python -m workshop status
 ```
 
@@ -186,7 +193,7 @@ flowchart TD
     F --> A[Reset to identical initial policy for each arm]
     A --> T[Generate answers to shared PPO prompt schedule]
     T --> W[Select arm reward: proxy / judge / kNN / ridge]
-    W --> P[One PPO engine: old policy, reference, GAE, clipped update]
+    W --> P[OpenRLHF PPO: GAE and actor/critic training steps]
     P --> T
     P --> H[Checkpoints and shared monitoring prompts]
     H --> E[Final evaluation on shared test prompts]
@@ -247,7 +254,7 @@ can differ as the policies learn. Default kNN is fixed at `k=32`, temperature
 | `seed_42/review/ungraded/` | Questions, answers and all failed grader replies for later inspection |
 | `seed_42/manifest.json`, `seed_42/data/splits.json` | Code/config/model identity, package versions and exact dataset split |
 
-Regenerate reports with `python -m workshop report --output outputs/main`.
+Regenerate reports with `python -m workshop report --output outputs/openrlhf`.
 Selection results are tuning diagnostics. The shared high-gap definition is
 chosen using kNN validation before PPO/final evaluation; it can favor kNN on
 validation. Both predictors are tested with the same definition. Changing a
@@ -299,7 +306,7 @@ deviations and contributing seed counts; they do not pool answers across seeds.
 
 These are descriptive metrics: no model refitting, new grading or PPO changes
 are required. New runs calculate them automatically. For completed standalone
-runs, `python -m workshop report --output outputs/main` calculates them from saved
+runs, `python -m workshop report --output outputs/openrlhf` calculates them from saved
 answers and features. Validation reports use `gap_validation_v3`, leaving any
 older versioned validation report intact. Tail percentages are fixed in the
 metric definition and do not tune the reward or classification threshold.
@@ -318,13 +325,13 @@ automatically after training and final evaluation. To analyze completed outputs
 or refresh the paper artifacts separately:
 
 ```bash
-python -m workshop analyze --output outputs/main
+python -m workshop analyze --output outputs/openrlhf
 ```
 
-The input can also be a single seed folder, such as `outputs/main/seed_42`.
+The input can also be a single seed folder, such as `outputs/openrlhf/seed_42`.
 The command loads saved answers, embeddings and frozen predictors; it does not
 download models, refit ridge, generate answers, change PPO, or call judges.
-The new artifacts are written to **`outputs/main/paper_results/`**. An external
+The new artifacts are written to **`outputs/openrlhf/paper_results/`**. An external
 empty folder may be supplied with `--destination`. To omit plots use
 `--no-plots`; `--bootstrap-samples 0` omits confidence intervals, while the default
 uses the saved configuration's 2,000 question-bootstrap draws.
@@ -420,7 +427,9 @@ must establish any claim that ridge is less robust or kNN resists overoptimizati
 | `__main__.py`, `suite.py` | User command, sequential seed jobs, aggregate results |
 | `run.py` | One preparation, training and evaluation lifecycle for every arm |
 | `models.py` | One policy implementation; frozen graders, embeddings and score cache |
-| `ppo.py` | One optimizer, rollout-statistics/GAE calculation and checkpoint implementation |
+| `ppo.py` | Rollout snapshots, minibatch scheduling, shared optimizer and checkpoint persistence |
+| `openrlhf_backend.py` | Adapt our models/strategy to the installed OpenRLHF actor/critic training steps and GAE |
+| `backend_check.py` | Download-free CUDA update and exact-resume installation check |
 | `memory.py` | Normalization, kNN, ridge fitting/prediction and feature archives |
 | `teacher_memory.py` | Relabel the same memory using the 30B teacher |
 | `data.py` | Disjoint question splits and deterministic rollout scheduling |
@@ -429,14 +438,15 @@ must establish any claim that ridge is less robust or kNN resists overoptimizati
 | `analysis.py`, `analysis_plots.py` | One CPU pipeline for checkpoint diagnostics, paper tables, uncertainty and figures |
 | `assets.py`, `common.py` | Model revisions, environment checks, run identity and file utilities |
 
-The PPO rollout statistics and GAE are calculated once and passed directly into
-optimization. There is no wrapper invoking another PPO engine and no import from
-the old project. The files are modules of this one implementation, not dataset
-copies.
+The rollout statistics are calculated once. OpenRLHF computes the advantages
+once and supplies both clipped losses through its unmodified training-step
+methods. The project schedules minibatches and persists the shared optimizer.
+It does not start a Ray cluster or vLLM generation engines, and has no second
+handwritten PPO loss implementation or dependency on the old project.
 
 Run identity includes the package source. Outputs and checkpoints created with
 an earlier package name or a different implementation must keep their original
-runner. Use a fresh output directory when starting this renamed project.
+runner. Use a fresh output directory for the OpenRLHF experiment.
 
 ## Offline checks
 
@@ -451,4 +461,4 @@ missing grades, matched ridge fitting, all-arm pilot/full execution, seed
 orchestration, reports and running from a copied standalone folder. These checks
 do not replace a full GPU run with the configured models.
 
-See [VERIFICATION.md](VERIFICATION.md) for the checks completed during extraction.
+See [VERIFICATION.md](VERIFICATION.md) for completed checks and their limits.

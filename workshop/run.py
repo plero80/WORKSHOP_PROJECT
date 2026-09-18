@@ -429,7 +429,7 @@ def train_arm(policy, arm, target, proxy, judge, norm, initial_memory, initial_s
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Workshop kNN: single-seed PPO experiment")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--output", type=Path, default=OUTPUT_ROOT / "main")
+    parser.add_argument("--output", type=Path, default=OUTPUT_ROOT / "openrlhf")
     parser.add_argument("--stage", choices=["pilot", "full", "prepare", "report"], default="full")
     parser.add_argument("--updates", type=int, help="Explicit target update; resumes existing arms to this target")
     parser.add_argument("--arms", nargs="+", choices=ARMS)

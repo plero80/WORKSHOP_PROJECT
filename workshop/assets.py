@@ -32,6 +32,8 @@ def retry_hub(fn):
 def check_runtime(config):
     import torch
     import torch.nn.functional as F
+    from .openrlhf_backend import library, VERSION
+    library()  # Fail before model downloads, rather than silently using our old PPO.
     device = config["runtime"]["device"]
     if not device.startswith("cuda"):
         raise ValueError("Real model experiments require a CUDA GPU. CPU is supported only by the offline tests.")
@@ -67,7 +69,7 @@ def check_runtime(config):
             "torch": torch.__version__, "cuda": torch.version.cuda,
             "compute_capability": list(torch.cuda.get_device_capability(device)),
             "dtype": config['runtime']['dtype'], "attention": config['runtime']['attention'],
-            "fused_optimizer": fused}
+            "fused_optimizer": fused, "ppo_backend": "openrlhf", "openrlhf": VERSION}
 
 
 def resolve_assets(config, output):
@@ -98,11 +100,13 @@ def resolve_assets(config, output):
 
 def bind_experiment(config, output, resolved, split, runtime):
     import torch
+    from .openrlhf_backend import provenance
     output = Path(output)
     versions = {name: importlib.metadata.version(name) for name in
-                ("transformers", "peft", "accelerate", "datasets", "huggingface-hub", "numpy", "scipy", "scikit-learn")}
+                ("openrlhf", "transformers", "peft", "accelerate", "datasets", "huggingface-hub", "numpy", "scipy", "scikit-learn")}
     identity = {"config": config, "resolved": resolved, "split_fingerprint": split["fingerprint"],
-                "source": source_fingerprint(), "versions": versions, "torch_version": torch.__version__.split("+")[0]}
+                "source": source_fingerprint(), "versions": versions, "ppo_backend": provenance(),
+                "torch_version": torch.__version__.split("+")[0]}
     fingerprint = digest(identity)
     manifest = output / "manifest.json"
     if manifest.exists() and read_json(manifest)["fingerprint"] != fingerprint:

@@ -20,7 +20,7 @@ if [[ -z "${WORKSHOP_PYTHON:-}" && -x .venv/bin/python ]]; then
 fi
 export HF_HOME="${HF_HOME:-$project_dir/.cache/huggingface}"
 
-output="outputs/$profile"
+output="outputs/openrlhf_$profile"
 command=("$python_command" -u -m workshop run --config "configs/$profile.yaml"
          --seeds 42 --stage full --output "$output")
 if [[ "${1:-}" == '--dry-run' ]]; then

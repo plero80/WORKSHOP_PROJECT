@@ -102,10 +102,13 @@ def run_suite(config, output, seeds, stage='full', updates=None):
     """Fresh process per seed, one training runner and one reproducible configuration."""
     output = Path(output).resolve()
     with run_lock(output):
-        declaration = {'seeds': seeds, 'config': config}
+        from .common import ENGINE_ID
+        declaration = {'seeds': seeds, 'config': config, 'engine': ENGINE_ID}
         path = output / 'suite_protocol.json'
         if path.exists():
             previous = read_json(path)
+            if previous.get('engine') != ENGINE_ID:
+                raise ValueError('This suite belongs to another PPO backend. Use a new output directory.')
             old_seeds = previous['seeds']
             if previous['config'] != config or seeds[:len(old_seeds)] != old_seeds:
                 raise ValueError('Suite configuration or existing seed order changed. Use another output directory.')

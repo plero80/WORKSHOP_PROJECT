@@ -17,7 +17,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "configs/default.yaml"
 OUTPUT_ROOT = ROOT / "outputs"
-ENGINE_ID = "workshop.ppo.v1"
+ENGINE_ID = "workshop.openrlhf.0.9.0.shared.v1"
 ARMS = ("proxy", "judge", "knn_static", "knn_static_30b", "ridge", "knn_refresh", "oracle")
 
 
@@ -27,7 +27,10 @@ def digest(value) -> str:
 
 def file_sha(path):
     with Path(path).open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        result = hashlib.sha256()
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            result.update(block)
+        return result.hexdigest()
 
 
 def response_key(encoder_identity, row):
@@ -190,6 +193,8 @@ def validate_config(c):
     if c["generation"]["temperature"] != 1.0:
         raise ValueError("PPO requires generation.temperature = 1.0.")
     d, p, g, s, k = (c[x] for x in ("dataset", "ppo", "generation", "scoring", "knn"))
+    if p.get('backend') != 'openrlhf':
+        raise ValueError('This project now uses ppo.backend: openrlhf. Start a new output with the current config.')
     if not isinstance(c["runtime"].get("gradient_checkpointing", True), bool):
         raise ValueError("runtime.gradient_checkpointing must be a JSON boolean.")
     if not isinstance(c["runtime"].get("fused_optimizer", False), bool):

@@ -1,8 +1,7 @@
-"""One token-level PPO implementation for all reward arms.
+"""Experiment batching/checkpoints around OpenRLHF's PPO training steps.
 
-Rollout statistics and GAE are computed once, then consumed directly by the
-optimizer. This retains the original clipped policy/value objectives, frozen
-LoRA-disabled reference, response masking, optimizer settings and random seeds.
+All reward arms use the same pinned library backend. The project supplies
+tokens/rewards and persists its shared actor/value parameters and optimizer.
 """
 from pathlib import Path
 import os
@@ -12,6 +11,7 @@ import numpy as np
 import torch
 
 from .common import ENGINE_ID, atomic_json, file_sha, read_json, seed_for
+from .openrlhf_backend import build_workers
 
 
 def pack_items(items, pad_id):
@@ -30,21 +30,6 @@ def pack_items(items, pad_id):
     return {'ids': ids, 'attention': attention, 'mask': mask, 'prompt_width': width}
 
 
-def advantages_and_returns(values, rewards, mask, gamma, lam):
-    advantages = torch.zeros_like(values)
-    running = torch.zeros(values.shape[0], device=values.device)
-    for t in range(values.shape[1]-1, -1, -1):
-        alive = mask[:, t+1].float() if t+1 < values.shape[1] else torch.zeros_like(running)
-        next_value = values[:, t+1] if t+1 < values.shape[1] else torch.zeros_like(running)
-        delta = rewards[:, t] + gamma * next_value * alive - values[:, t]
-        running = (delta + gamma * lam * running * alive) * mask[:, t]
-        advantages[:, t] = running
-    returns = (advantages + values) * mask
-    valid = advantages[mask]
-    normalized = (advantages - valid.mean()) / torch.sqrt(valid.var(unbiased=False) + 1e-8)
-    return normalized * mask, returns
-
-
 class PPOTrainer:
     def __init__(self, policy, config):
         self.policy, self.config, self.c = policy, config, config['ppo']
@@ -54,6 +39,7 @@ class PPOTrainer:
             {'params': [p for p in policy.lm.parameters() if p.requires_grad], 'lr': self.c['learning_rate']},
             {'params': policy.value_head.parameters(), 'lr': self.c['value_learning_rate']}],
             betas=(.9, .999), eps=1e-5, weight_decay=0., fused=fused)
+        self.workers = build_workers(policy, self.optimizer, self.c)
 
     @torch.no_grad()
     def prepare(self, items, rewards):
@@ -73,10 +59,17 @@ class PPOTrainer:
             old.append(lp); values.append(val); refs.append(ref)
         old, values, refs = map(torch.cat, (old, values, refs))
         mask = batch['mask']
-        kl = (old - refs) * mask
-        token_rewards = -c['kl_coefficient'] * kl
-        token_rewards[torch.arange(len(items), device=policy.device), mask.sum(1)-1] += torch.as_tensor(rewards, dtype=torch.float32, device=policy.device)
-        advantages, returns = advantages_and_returns(values, token_rewards, mask, c['gamma'], c['gae_lambda'])
+        lib = self.workers.library
+        kl = lib.compute_approx_kl(old, refs, kl_estimator='k1') * mask
+        scalar_rewards = torch.as_tensor(rewards, dtype=torch.float32, device=policy.device)
+        token_rewards = lib.compute_reward(scalar_rewards, c['kl_coefficient'], kl, action_mask=mask)
+        experience = lib.Experience(index=list(range(len(items))), sequences=batch['ids'],
+            attention_mask=batch['attention'], action_mask=mask, action_log_probs=old,
+            base_action_log_probs=refs, values=values, kl=kl, rewards=scalar_rewards,
+            info={'reward': scalar_rewards, 'response_length': mask.sum(1).float(),
+                  'total_length': batch['attention'].sum(1).float()})
+        self.workers.maker.compute_advantages_and_returns([experience])
+        advantages, returns = experience.advantages * mask, experience.returns * mask
         return {**batch, 'old_logprobs': old, 'old_values': values, 'reference_logprobs': refs,
                 'advantages': advantages, 'returns': returns, 'kl': kl, 'token_rewards': token_rewards}
 
@@ -89,7 +82,7 @@ class PPOTrainer:
                 'optimization_seconds': time.monotonic()-prepared}
 
     def optimize(self, rollout, update_index):
-        """Consume the snapshot; never recompute old/reference statistics or GAE."""
+        """Feed frozen rollout statistics to the library's actor/critic steps."""
         c, actor = self.c, self.policy
         ids, attention, mask = (rollout[k] for k in ('ids', 'attention', 'mask'))
         old, old_values, adv, returns = (rollout[k] for k in ('old_logprobs', 'old_values', 'advantages', 'returns'))
@@ -101,36 +94,35 @@ class PPOTrainer:
             for start in range(0, len(ids), c['minibatch_size']):
                 mini = order[start:start+c['minibatch_size']]
                 denominator = mask[mini].sum().clamp_min(1)
-                self.optimizer.zero_grad(set_to_none=True)
+                self.workers.strategy.begin()
                 accum = dict(policy_loss=0., value_loss=0., old_policy_kl=0., clip_fraction=0.)
+                microbatches = 0
                 for offset in range(0, len(mini), self.microbatch):
                     ix = mini[offset:offset+self.microbatch]
-                    newp, values = actor.statistics(ids[ix], attention[ix], rollout['prompt_width'])
-                    log_ratio = newp - old[ix]
-                    if not torch.isfinite(log_ratio[mask[ix]]).all() or log_ratio[mask[ix]].abs().max() > 20:
-                        raise FloatingPointError('Nonfinite or extreme PPO likelihood ratio.')
-                    ratio = log_ratio.exp()
-                    surrogate = torch.minimum(ratio*adv[ix], ratio.clamp(1-c['clip_range'], 1+c['clip_range'])*adv[ix])
-                    clipped_v = old_values[ix] + (values-old_values[ix]).clamp(-c['value_clip_range'], c['value_clip_range'])
-                    vloss = .5 * torch.maximum((values-returns[ix]).square(), (clipped_v-returns[ix]).square())
-                    p_loss = -(surrogate*mask[ix]).sum()/denominator
-                    v_loss = (vloss*mask[ix]).sum()/denominator
-                    loss = p_loss + c['value_coefficient']*v_loss
-                    if not torch.isfinite(loss):
-                        raise FloatingPointError('Nonfinite PPO loss.')
-                    loss.backward()
-                    accum['policy_loss'] += p_loss.detach().item()
-                    accum['value_loss'] += v_loss.detach().item()
-                    accum['old_policy_kl'] += (((ratio-1)-log_ratio)*mask[ix]).sum().detach().item()/denominator.item()
-                    accum['clip_fraction'] += (((ratio-1).abs()>c['clip_range'])*mask[ix]).sum().item()/denominator.item()
+                    scale = (mask[ix].sum() / denominator).item()
+                    self.workers.strategy.scale = scale
+                    self.workers.actor.actor.old_logprobs = old[ix]
+                    experience = self.workers.library.Experience(
+                        sequences=ids[ix], attention_mask=attention[ix], action_mask=mask[ix],
+                        action_log_probs=old[ix], base_action_log_probs=rollout['reference_logprobs'][ix],
+                        values=old_values[ix], advantages=adv[ix], returns=returns[ix],
+                        info={'response_length': mask[ix].sum(1).float()})
+                    actor_stats = self.workers.actor.training_step(experience, c['kl_coefficient'], offset)
+                    critic_stats = self.workers.critic.training_step(experience, offset)
+                    accum['policy_loss'] += actor_stats['policy_loss'] * scale
+                    accum['value_loss'] += critic_stats['critic_loss'] * scale
+                    accum['clip_fraction'] += actor_stats['ppo_clip_ratio'] * scale
+                    newp = self.workers.actor.actor.last_logprobs
+                    # k3 is a nonnegative update diagnostic, separate from the
+                    # k1 frozen-reference penalty used in the reward.
+                    update_kl = self.workers.library.compute_approx_kl(old[ix], newp, kl_estimator='k3')
+                    accum['old_policy_kl'] += (update_kl * mask[ix]).sum().item() / denominator.item()
+                    microbatches += 1
                 if accum['old_policy_kl'] > c['target_update_kl']:
                     self.optimizer.zero_grad(set_to_none=True)
                     stopped_early = True
                     break
-                norm = torch.nn.utils.clip_grad_norm_(actor.parameters(), c['max_grad_norm'])
-                if not torch.isfinite(norm):
-                    raise FloatingPointError('Nonfinite gradient norm.')
-                self.optimizer.step()
+                self.workers.strategy.finish(microbatches)
                 metrics.append(accum)
             if stopped_early:
                 break

@@ -1,68 +1,54 @@
-# Workshop kNN verification
+﻿# Workshop kNN verification
 
-Verified locally on 2026-09-18 with Python 3.12, PyTorch 2.6.0+cu124 and the
-Python dependencies pinned in `requirements.txt`. Core tiny-model tests run on
-CPU, with additional CUDA checks when available. No pretrained models are
-downloaded by the tests.
+Verified on 2026-09-18 in an isolated Ubuntu/WSL2 environment with Python
+3.10.12, OpenRLHF 0.9.0, PyTorch 2.8.0+cu129, Transformers 4.57.0 and an
+RTX 3070 Ti. The real installed OpenRLHF training steps and losses were used;
+no replacement implementation or mocked loss was used for the PPO checks.
 
-After the runtime optimizations and shared launch profiles, the full suite passed:
-**142 tests passed, 2 third-party SWIG
-deprecation warnings**. The `python -m workshop run --seeds 42 43 44 --dry-run`
-command confirms all five reward arms and the 400-attempt full schedule.
+**147 tests passed**, with 14 third-party deprecation warnings, in 27.09 seconds.
+Run the suite in the Linux training environment with `python -m pytest -q`.
+Tests use random tiny local Qwen models and do not download pretrained models.
 
-Both inherited runtime profiles were checked against the common experiment
-definition: only generation, proxy/4B grading and 30B grading batch limits differ.
-Relative parent paths and inheritance-cycle rejection are tested. Both shell
-launchers passed syntax checks and real CLI dry runs without creating outputs.
-A separate isolated check used a stub process to verify detached seed-42
-launches, separate output/log paths, rejection of unknown arguments and paths
-containing spaces; no training process was started by that shell check.
+The public `python -m workshop backend-check` command also passed separately:
+BF16, SDPA, fused AdamW, two optimizer steps, changed actor/value parameters,
+and exact checkpoint continuation. Its output reports `ok: true`,
+`exact_resume: true`, and `pretrained_models_downloaded: 0`.
 
-- Integration tests include real tiny Qwen2/Qwen3/Qwen3-MoE model
-  forwards and gradients, all-arm pilot-to-full execution, unchanged completed
-  checkpoints on rerun, invalid-grade recovery, frozen ridge fitting, reporting,
-  seed scheduling and copying the package/config to an isolated directory.
-- CUDA tests exercised BF16 matrix multiplication, SDPA forward/backward and
-  fused AdamW kernels. Two tiny-model PPO updates matched the standard optimizer
-  within the test tolerance; continuing from a fused-optimizer checkpoint matched
-  uninterrupted training exactly. CPU tests use the standard optimizer.
-- Grading-cache tests verify one transaction per completed batch, preserved
-  answer order and embeddings, durable cache hits after reopening the database,
-  and no partially cached batch on serialization failure.
-- A separate numerical extraction check compared the new PPO trainer with the
-  original shared trainer on identical token batches and terminal rewards.
-  Every trainable adapter and value-head parameter matched **exactly after each
-  of two successive updates**, including AdamW state carried between updates.
-  The comparison used the original trainer's code read directly for this check;
-  the standalone package and its test suite have no dependency on that code.
-- The original PPO source used for that comparison had SHA-256
-  `e31b160a3d2cc42040a23e9d594013025d9b7c945dd0c1de3a073ed0cbc43153`.
-- PPO tests separately check that old/reference statistics and GAE are computed
-  once per rollout, the base reference remains frozen, gradients agree across
-  batching choices, and optimizer checkpoints resume exactly.
-- Ridge tests check the actual memory targets, separate question-weighted
-  validation, frozen coefficients on resume, exact answer/feature identity,
-  absence of final-answer tuning and absence of judge calls in ridge training.
-- Optimistic Tail Bias tests use hand-computed 1%, 5% and 10% lower tails,
-  positive/negative/zero signed errors, inclusive ties, repeated question IDs,
-  missing/nonfinite grades, empty tails and JSON-safe unavailable values.
-  Integration checks recompute the metrics from exported predictions, verify
-  tail-membership flags, preserve saved source metrics during report generation,
-  match shared-base diagnostics to each method's own PPO accuracy, and check
-  means/counts across seeds.
-- Core paper-analysis tests distinguish high-reward tails from low-predicted-gap
-  tails, verify signed optimism summaries, inclusive ties, common reward-comparison
-  populations, Kendall/constant-series handling, question-cluster bootstrap and
-  recomputation of tail cutoffs in every bootstrap draw. Peak-to-final tests reject
-  mixing monitoring peaks with the separate test cohort.
-- The all-arm tiny-model integration produces the complete paper tables,
-  statistics and PDF/PNG figures with generation and grader calls disabled during
-  analysis. Every original experiment file is checked unchanged. A separate saved
-  two-seed fixture exercises the public `analyze` command, repeated analysis,
-  source preservation and cross-seed summaries without refitting ridge.
+Checks include:
 
-No full pretrained-model GPU experiment or throughput benchmark was run for
-these changes. Larger batches and fused execution still need measurement on
-the training environment.
-Tiny random models verify execution and mechanics, not GSM8K accuracy or the
-scientific effectiveness of ridge.
+- Actor and critic workers inherit the installed OpenRLHF training-step methods
+  unchanged. Instrumentation confirms both upstream losses execute and GAE is
+  computed once per rollout.
+- Hand-computed masked GAE, frozen reference weights, variable response lengths,
+  equivalent gradient accumulation across microbatch sizes, and exact resume.
+- Real CUDA updates with standard and fused optimizers, including checkpoint
+  continuation, and the configured matrix-multiply/attention training kernels.
+- One- and three-answer partial rollouts, a fully ungraded attempt followed by a
+  partially graded attempt, and preservation of missing-grade review records.
+- Rejection of legacy custom-PPO checkpoints/suites and invalid backend choices.
+- All-arm tiny-model preparation, pilot, full execution, resumed checkpoints,
+  frozen ridge fitting, seed scheduling, reports, metrics and PDF/PNG plots.
+- The existing tail-bias, high-reward optimism, bootstrap, data-split, grader,
+  cache, predictor-validation and standalone-copy checks.
+
+Both shell profiles passed syntax checks and actual CLI dry runs. They select
+seed 42, all five arms and 400 attempts per arm, with fresh output roots
+`outputs/openrlhf_b200` and `outputs/openrlhf_b300`. The runtime profiles still
+differ only in their three inference batch limits.
+
+The Linux environment was installed from the pinned package requirements,
+CUDA wheels and NVIDIA compiler redistribution used by setup. OpenRLHF's pin
+requires Transformers 4.57.0, which PyPI marks as withdrawn for packaging
+issues; the explicit pin installed successfully and the full suite above ran
+against it. The pinned import dependencies include DeepSpeed and vLLM, but
+this integration runs a single-device PyTorch strategy without starting Ray
+workers, a DeepSpeed engine or vLLM generation engines.
+
+The previous custom trainer's parity checks belong to the earlier Git revision;
+they are not evidence of bitwise equivalence after this migration. New manifests
+record the new engine, library version and installed upstream source hashes.
+
+No full pretrained GSM8K experiment or B200/B300 throughput benchmark was run.
+Tiny-model checks establish execution and mechanics, not task accuracy or the
+scientific effectiveness of kNN/ridge. Start fresh runs under this backend and
+keep historical results attributed to their original trainer.
