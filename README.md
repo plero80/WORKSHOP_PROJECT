@@ -33,7 +33,11 @@ method changes. The untrained base policy is evaluated as an additional baseline
 
 Use Python 3.11 or 3.12 and a CUDA-enabled PyTorch installation compatible with
 your GPU. The requirements retain the PyTorch supplied by your GPU environment;
-the runner checks CUDA, BF16, and a real GPU operation before downloading models.
+the runner checks matrix multiplication, attention forward/backward, and the
+configured optimizer on the GPU before downloading models. For a fresh GPU
+environment, use a recent PyTorch build with CUDA 12.8 or later; consult the
+[official installation instructions](https://pytorch.org/get-started/locally/)
+for a build compatible with your driver.
 The full default suite loads the 30B teacher for memory preparation. To omit that
 comparison, start a new output with `--arms proxy judge knn_static ridge`.
 
@@ -54,6 +58,21 @@ python -m workshop run
 On Windows, activate the environment with `.venv\Scripts\Activate.ps1`.
 The default is one full seed, **42**, with **400 PPO attempts per arm**.
 Ridge runs automatically with the other four arms.
+
+The default runtime uses BF16, PyTorch SDPA attention, and fused AdamW updates on
+CUDA. Generation batches contain up to 256 answers; proxy/4B grading batches up
+to 128; 30B grading batches up to 32. PPO computes old/reference statistics for
+up to 16 answers together, while optimizer minibatches remain **8 answers** and
+rollouts remain **16 answers**. Gradient checkpointing is disabled to avoid
+recomputing activations. These settings prioritize throughput on a GPU with
+ample memory. On smaller GPUs, reduce `generation.batch_size`,
+`scoring.batch_size`, `teacher30b.batch_size`, and `runtime.ppo_microbatch_size`.
+
+Completed grading batches are cached with one durable transaction per batch.
+If interrupted during an unfinished batch, only its uncached answers need
+grading again. Batch shapes and optimizer kernels can change floating-point
+rounding and seeded samples; treat a runtime change as a new experiment, with
+the same configuration for every compared method and training seed.
 
 For three seeds:
 

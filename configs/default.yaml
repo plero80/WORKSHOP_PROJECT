@@ -27,15 +27,16 @@ runtime:
   dtype: bfloat16
   attention: sdpa
   gradient_checkpointing: false
-  ppo_microbatch_size: 8
+  ppo_microbatch_size: 16
+  fused_optimizer: true
 generation:
   max_prompt_tokens: 1024
   max_new_tokens: 768
-  batch_size: 128
+  batch_size: 256
   temperature: 1.0
 scoring:
   mode: rationale_then_score
-  batch_size: 64
+  batch_size: 128
   max_input_tokens: 4096
   max_new_tokens: 160
   retry_max_new_tokens: 320
@@ -84,7 +85,7 @@ evaluation:
   numeric_protocol_frozen_before_run: true
 data_seed: 42
 teacher30b:
-  batch_size: 4
+  batch_size: 32
   evaluate_final: false
 completion_reward:
   format_penalty: 0.0

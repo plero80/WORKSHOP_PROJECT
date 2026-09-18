@@ -210,11 +210,19 @@ class ScoreCache:
         return data
 
     def put(self, key, result):
-        data = {k: v for k, v in result.items() if k != "embedding"}
-        emb = result["embedding"]
-        blob = np.asarray(emb, np.float32).tobytes() if emb is not None else None
-        self.db.execute("INSERT OR REPLACE INTO scores VALUES (?, ?, ?)", (key, json.dumps(data), blob))
-        self.db.commit()
+        self.put_many([(key, result)])
+
+    def put_many(self, entries):
+        """Durably commit one completed grading batch in one transaction."""
+        records = []
+        for key, result in entries:
+            data = {k: v for k, v in result.items() if k != "embedding"}
+            emb = result["embedding"]
+            blob = np.asarray(emb, np.float32).tobytes() if emb is not None else None
+            records.append((key, json.dumps(data), blob))
+        if records:
+            with self.db:
+                self.db.executemany("INSERT OR REPLACE INTO scores VALUES (?, ?, ?)", records)
 
     def event(self, **data):
         append_jsonl(self.output / "judge_calls.jsonl", {"time": time.time(), **data})
@@ -372,9 +380,9 @@ class RewardScorer:
                     print(f"{self.role} {stage}: unscored {row['id'][:12]}; saved {value['review_path']}; continuing.", flush=True)
                 elif not 1 <= value["score"] <= 5:
                     raise ValueError("Judge rating outside [1, 5].")
-                if self.config["scoring"]["cache"]:
-                    self.cache.put(key, value)
                 output[i] = value
+            if self.config["scoring"]["cache"]:
+                self.cache.put_many([(key, output[i]) for i, key, _ in chunk])
             if start % max(32, s["batch_size"]) == 0 or start + len(chunk) == len(missing):
                 print(f"{self.role} {stage}: {start + len(chunk)}/{len(missing)} uncached responses scored", flush=True)
         return output

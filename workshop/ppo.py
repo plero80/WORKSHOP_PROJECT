@@ -49,10 +49,11 @@ class PPOTrainer:
     def __init__(self, policy, config):
         self.policy, self.config, self.c = policy, config, config['ppo']
         self.microbatch = config['runtime']['ppo_microbatch_size']
+        fused = config['runtime'].get('fused_optimizer', False) and policy.device.type == 'cuda'
         self.optimizer = torch.optim.AdamW([
             {'params': [p for p in policy.lm.parameters() if p.requires_grad], 'lr': self.c['learning_rate']},
             {'params': policy.value_head.parameters(), 'lr': self.c['value_learning_rate']}],
-            betas=(.9, .999), eps=1e-5, weight_decay=0.)
+            betas=(.9, .999), eps=1e-5, weight_decay=0., fused=fused)
 
     @torch.no_grad()
     def prepare(self, items, rewards):

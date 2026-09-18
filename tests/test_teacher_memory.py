@@ -64,7 +64,7 @@ def test_new_arm_uses_proxy_and_own_teacher_scale_without_judge_calls():
 
 def test_teacher_batch_config_cannot_change_proxy_config():
     c=load_config(DEFAULT_CONFIG);before=copy.deepcopy(c);strong=teacher_config(c)
-    assert c==before and strong['scoring']['batch_size']==4
+    assert c==before and strong['scoring']['batch_size']==c['teacher30b']['batch_size']
     assert strong['scoring']['mode']==c['scoring']['mode']
 
 @pytest.mark.parametrize('text,value,cap,eos',[

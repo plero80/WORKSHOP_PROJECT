@@ -1,18 +1,26 @@
 # Workshop kNN verification
 
 Verified locally on 2026-09-18 with Python 3.12, PyTorch 2.6.0+cu124 and the
-Python dependencies pinned in `requirements.txt`. Tiny-model tests run on CPU;
-they do not download any pretrained models.
+Python dependencies pinned in `requirements.txt`. Core tiny-model tests run on
+CPU, with additional CUDA checks when available. No pretrained models are
+downloaded by the tests.
 
-After renaming the project to `workshop_knn_project` and its Python package to
-`workshop`, the full suite passed again: **133 tests passed, 2 third-party SWIG
+After the package rename and runtime optimizations, the full suite passed:
+**139 tests passed, 2 third-party SWIG
 deprecation warnings**. The `python -m workshop run --seeds 42 43 44 --dry-run`
 command confirms all five reward arms and the 400-attempt full schedule.
 
-- **133 tests passed.** This includes real tiny Qwen2/Qwen3/Qwen3-MoE model
+- **139 tests passed.** This includes real tiny Qwen2/Qwen3/Qwen3-MoE model
   forwards and gradients, all-arm pilot-to-full execution, unchanged completed
   checkpoints on rerun, invalid-grade recovery, frozen ridge fitting, reporting,
   seed scheduling and copying the package/config to an isolated directory.
+- CUDA tests exercised BF16 matrix multiplication, SDPA forward/backward and
+  fused AdamW kernels. Two tiny-model PPO updates matched the standard optimizer
+  within the test tolerance; continuing from a fused-optimizer checkpoint matched
+  uninterrupted training exactly. CPU tests use the standard optimizer.
+- Grading-cache tests verify one transaction per completed batch, preserved
+  answer order and embeddings, durable cache hits after reopening the database,
+  and no partially cached batch on serialization failure.
 - A separate numerical extraction check compared the new PPO trainer with the
   original shared trainer on identical token batches and terminal rewards.
   Every trainable adapter and value-head parameter matched **exactly after each
@@ -45,6 +53,8 @@ command confirms all five reward arms and the 400-attempt full schedule.
   two-seed fixture exercises the public `analyze` command, repeated analysis,
   source preservation and cross-seed summaries without refitting ridge.
 
-No full pretrained-model GPU experiment was run as part of this extraction.
+No full pretrained-model GPU experiment or throughput benchmark was run for
+these changes. Larger batches and fused execution still need measurement on
+the training environment.
 Tiny random models verify execution and mechanics, not GSM8K accuracy or the
 scientific effectiveness of ridge.

@@ -171,6 +171,8 @@ def validate_config(c):
     d, p, g, s, k = (c[x] for x in ("dataset", "ppo", "generation", "scoring", "knn"))
     if not isinstance(c["runtime"].get("gradient_checkpointing", True), bool):
         raise ValueError("runtime.gradient_checkpointing must be a JSON boolean.")
+    if not isinstance(c["runtime"].get("fused_optimizer", False), bool):
+        raise ValueError("runtime.fused_optimizer must be a JSON boolean.")
     if min(g["batch_size"], s["batch_size"]) < 1:
         raise ValueError("Generation and grading batch sizes must be positive.")
     for key in ("ppo_microbatch_size",):

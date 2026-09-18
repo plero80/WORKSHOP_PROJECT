@@ -31,6 +31,7 @@ def retry_hub(fn):
 
 def check_runtime(config):
     import torch
+    import torch.nn.functional as F
     device = config["runtime"]["device"]
     if not device.startswith("cuda"):
         raise ValueError("Real model experiments require a CUDA GPU. CPU is supported only by the offline tests.")
@@ -39,12 +40,34 @@ def check_runtime(config):
     torch.cuda.set_device(device)
     if config["runtime"]["dtype"] == "bfloat16" and not torch.cuda.is_bf16_supported():
         raise RuntimeError("This GPU does not support bfloat16. Use a supported GPU or explicitly select float32.")
-    # Execute a CUDA kernel, catching unsupported Blackwell wheel builds early.
-    probe = torch.randn((32, 32), device=device)
-    assert torch.isfinite(probe @ probe).all()
+    # Exercise the configured precision and training kernels before downloads.
+    dtype = getattr(torch, config['runtime']['dtype'])
+    fused = config['runtime'].get('fused_optimizer', False)
+    try:
+        probe = torch.randn((32, 32), device=device, dtype=dtype, requires_grad=True)
+        loss = (probe @ probe).float().square().mean()
+        if config['runtime']['attention'] == 'sdpa':
+            query = torch.randn((2, 4, 32, 64), device=device, dtype=dtype, requires_grad=True)
+            attended = F.scaled_dot_product_attention(query, query, query, is_causal=True)
+            loss = loss + attended.float().square().mean()
+        loss.backward()
+        if not torch.isfinite(loss) or not torch.isfinite(probe.grad).all():
+            raise RuntimeError('Nonfinite runtime probe.')
+        if fused:
+            parameter = torch.nn.Parameter(torch.ones(8, device=device))
+            parameter.grad = torch.ones_like(parameter)
+            optimizer = torch.optim.AdamW([parameter], lr=1e-5, fused=True)
+            optimizer.step()
+        torch.cuda.synchronize(device)
+    except RuntimeError as error:
+        raise RuntimeError('The configured CUDA training kernels failed. Use a PyTorch CUDA build '
+                           'compatible with this GPU and driver. Details: '+str(error)) from error
     free, total = torch.cuda.mem_get_info(device)
     return {"gpu": torch.cuda.get_device_name(device), "free_gib": free / 2**30, "total_gib": total / 2**30,
-            "torch": torch.__version__, "cuda": torch.version.cuda}
+            "torch": torch.__version__, "cuda": torch.version.cuda,
+            "compute_capability": list(torch.cuda.get_device_capability(device)),
+            "dtype": config['runtime']['dtype'], "attention": config['runtime']['attention'],
+            "fused_optimizer": fused}
 
 
 def resolve_assets(config, output):
