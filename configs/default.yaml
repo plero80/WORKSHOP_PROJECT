@@ -1,0 +1,116 @@
+# One full GSM8K experiment; ridge is a normal reward arm.
+seed: 42
+models:
+  policy: Qwen/Qwen2.5-0.5B-Instruct
+  proxy: Qwen/Qwen2.5-1.5B-Instruct
+  judge: Qwen/Qwen3-4B-Instruct-2507
+  judge30b: Qwen/Qwen3-30B-A3B-Instruct-2507
+revisions:
+  policy: 7ae557604adf67be50417f59c2c2f167def9a775
+  proxy: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
+  judge: cdbee75f17c01a7cc42f958dc650907174af0554
+  dataset: 740312add88f781978c0658806c59bc2815b9866
+  judge30b: main
+dataset:
+  id: openai/gsm8k
+  config: main
+  calibration: 128
+  memory: 512
+  selection: 128
+  monitor: 128
+  refresh: 512
+  ppo: 5000
+  final: 1319
+  responses_per_prompt: 2
+runtime:
+  device: cuda:0
+  dtype: bfloat16
+  attention: sdpa
+  gradient_checkpointing: false
+  ppo_microbatch_size: 8
+generation:
+  max_prompt_tokens: 1024
+  max_new_tokens: 768
+  batch_size: 128
+  temperature: 1.0
+scoring:
+  mode: rationale_then_score
+  batch_size: 64
+  max_input_tokens: 4096
+  max_new_tokens: 160
+  retry_max_new_tokens: 320
+  minimum_std: 0.05
+  cache: true
+knn:
+  k_grid:
+  - 32
+  temperature_grid:
+  - 0.05
+  gap_quantile: 0.95
+  correction: signed
+  refresh_every: 100
+  refresh_prompts: 64
+  refresh_responses: 2
+ppo:
+  pilot_updates: 100
+  full_updates: 400
+  prompts_per_update: 8
+  responses_per_prompt: 2
+  epochs: 2
+  minibatch_size: 8
+  learning_rate: 1.0e-05
+  value_learning_rate: 0.0001
+  clip_range: 0.2
+  value_clip_range: 0.2
+  value_coefficient: 0.5
+  kl_coefficient: 0.01
+  gamma: 1.0
+  gae_lambda: 0.95
+  max_grad_norm: 1.0
+  target_update_kl: 0.05
+  lora_r: 16
+  lora_alpha: 32
+  checkpoint_every: 5
+  monitor_every: 25
+arms:
+- proxy
+- judge
+- knn_static
+- knn_static_30b
+- ridge
+evaluation:
+  bootstrap_samples: 2000
+  numeric_protocol: gsm8k_numeric_recheck_v1
+  numeric_protocol_frozen_before_run: true
+data_seed: 42
+teacher30b:
+  batch_size: 4
+  evaluate_final: false
+completion_reward:
+  format_penalty: 0.0
+  incomplete_penalty: 0.0
+validation:
+  label_quantiles:
+  - 0.5
+  - 0.55
+  - 0.6
+  - 0.65
+  - 0.7
+  - 0.75
+  - 0.8
+  - 0.85
+  - 0.9
+  - 0.95
+  minimum_class_examples: 20
+  minimum_class_questions: 20
+  decision_metric: balanced_accuracy
+ridge:
+  alphas:
+  - 0.001
+  - 0.01
+  - 0.1
+  - 1.0
+  - 10.0
+  - 100.0
+  - 1000.0
+  cpu_threads: 8

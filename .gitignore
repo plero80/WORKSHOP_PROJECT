@@ -1,0 +1,14 @@
+outputs/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.log
+*.zip
+.env
+.env.*
+!.env.example
+*.safetensors
+*.pt
+*.pth
+*.npz
