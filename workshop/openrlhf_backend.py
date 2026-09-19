@@ -3,7 +3,7 @@
 Only model/strategy initialization is specialized here. The actor and critic
 training_step methods, clipped losses, reward shaping, GAE and advantage
 normalization execute in the installed OpenRLHF package. No Ray cluster or vLLM
-generation engine is started. See docs/OPENRLHF.md for the integration boundary.
+generation engine is started.
 """
 from functools import lru_cache
 from importlib import metadata
